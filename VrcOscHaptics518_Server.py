@@ -52,7 +52,7 @@ async def send_data():
                 prev_bool_values = bool_values.copy()
 
             # Delay for 100 milliseconds
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(0.1)
 
 # Start OSC server and run the WebSocket client
 if __name__ == "__main__":
