@@ -10,6 +10,7 @@ server_address = "ws://HapticESP-1:8080"
 # Number of boolean outputs
 num_outputs = 6
 
+
 # Initialize the boolean values and previous state
 bool_values = [False] * num_outputs
 prev_bool_values = bool_values.copy()
