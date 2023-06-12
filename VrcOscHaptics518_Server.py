@@ -19,8 +19,17 @@ server_addresses = [
 # Number of boolean outputs
 num_outputs = 128
 
-# Number of boolean outputs per ESP
-outputs_per_esp = 16
+# Configuration for each ESP: start and stop numbers
+esp_config = [
+    {"start": 1, "stop": 16},   # ESP-L-Arm
+    {"start": 17, "stop": 32},  # ESP-F-Body
+    {"start": 33, "stop": 48},  # ESP-R-Body
+    {"start": 49, "stop": 64},  # ESP-R-Arm
+    {"start": 65, "stop": 80},  # ESP-Head
+    {"start": 81, "stop": 96},  # ESP-L-Leg
+    {"start": 97, "stop": 112}, # ESP-R-Leg
+    {"start": 113, "stop": 128} # ESP-Extra
+]
 
 # Initialize the boolean values and previous state
 bool_values = [False] * num_outputs
@@ -93,13 +102,16 @@ if __name__ == "__main__":
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
-    # Run the WebSocket clients
+    # Run the WebSocket clients for available ESPs
     tasks = []
     for i, server_address in enumerate(server_addresses):
-        start_index = i * outputs_per_esp
-        end_index = start_index + outputs_per_esp
-        task = asyncio.ensure_future(send_data(server_address, start_index, end_index))
-        tasks.append(task)
+        if i < len(esp_config):
+            start_index = esp_config[i]["start"] - 1
+            end_index = esp_config[i]["stop"]
+            task = asyncio.ensure_future(send_data(server_address, start_index, end_index))
+            tasks.append(task)
+        else:
+            print("ESP configuration missing for server address:", server_address)
 
     try:
         loop.run_until_complete(asyncio.gather(*tasks))
