@@ -3,6 +3,7 @@ from pythonosc.osc_server import BlockingOSCUDPServer
 import websockets
 import asyncio
 import threading
+import time
 
 # WebSocket server addresses (replace with your ESP8266 IP addresses)
 server_addresses = [
@@ -21,14 +22,14 @@ num_outputs = 128
 
 # Configuration for each ESP: start and stop numbers
 esp_config = [
-    {"start": 1, "stop": 16},   # ESP-L-Arm
-    {"start": 17, "stop": 32},  # ESP-F-Body
-    {"start": 33, "stop": 48},  # ESP-R-Body
-    {"start": 49, "stop": 64},  # ESP-R-Arm
-    {"start": 65, "stop": 80},  # ESP-Head
-    {"start": 81, "stop": 96},  # ESP-L-Leg
-    {"start": 97, "stop": 112}, # ESP-R-Leg
-    {"start": 113, "stop": 128} # ESP-Extra
+    {"name": "ESP-L-Arm", "start": 1, "stop": 16, "in_use": True},
+    {"name": "ESP-F-Body", "start": 17, "stop": 32, "in_use": True},
+    {"name": "ESP-R-Body", "start": 33, "stop": 48, "in_use": False},
+    {"name": "ESP-R-Arm", "start": 49, "stop": 64, "in_use": False},
+    {"name": "ESP-Head", "start": 65, "stop": 80, "in_use": False},
+    {"name": "ESP-L-Leg", "start": 81, "stop": 96, "in_use": True},
+    {"name": "ESP-R-Leg", "start": 97, "stop": 112, "in_use": False},
+    {"name": "ESP-Extra", "start": 113, "stop": 128, "in_use": False}
 ]
 
 # Initialize the boolean values and previous state
@@ -55,33 +56,37 @@ def handle_osc_message(address, *args):
 
 
 # WebSocket client function
-async def send_data(server_address, start_index, end_index):
+async def send_data(server_address, start_index, end_index, in_use):
     global prev_bool_values  # Declare prev_bool_values as global
-    try:
-        async with websockets.connect(server_address) as ws:
-            print("Connected to", server_address)
-            while True:
-                # Check if there is a difference between the current state and the previous state
-                if bool_values[start_index:end_index] != prev_bool_values[start_index:end_index]:
-                    # Convert the boolean values to a string payload
-                    payload = "".join(
-                        "1" if value else "0" for value in bool_values[start_index:end_index]
-                    )
+    while in_use:
+        try:
+            async with websockets.connect(server_address) as ws:
+                print("Connected to", server_address)
+                while in_use:
+                    # Check if there is a difference between the current state and the previous state
+                    if bool_values[start_index:end_index] != prev_bool_values[start_index:end_index]:
+                        # Convert the boolean values to a string payload
+                        payload = "".join(
+                            "1" if value else "0" for value in bool_values[start_index:end_index]
+                        )
 
-                    # Send the payload to the ESP8266
-                    await ws.send(payload)
+                        # Send the payload to the ESP8266
+                        await ws.send(payload)
 
-                    # Print the payload sent
-                    print("Sent data to", server_address, ":", payload)
+                        # Print the payload sent
+                        print("Sent data to", server_address, ":", payload)
 
-                    # Update the previous state
-                    prev_bool_values[start_index:end_index] = bool_values[start_index:end_index]
+                        # Update the previous state
+                        prev_bool_values[start_index:end_index] = bool_values[start_index:end_index]
 
-                # Delay for 100 milliseconds
-                await asyncio.sleep(0.1)
-    except Exception as e:
-        print("WebSocket client error:", str(e))
-        print("Failed to connect to", server_address)
+                    # Delay 0.1 for max cpu effitiency 0.01 for max speed
+                    await asyncio.sleep(0.03)
+        except Exception as e:
+            print("WebSocket client error:", str(e))
+            print("Failed to connect to", server_address)
+
+        # Wait for 1 second before reconnecting
+        await asyncio.sleep(1)
 
 
 # Start OSC server and run the WebSocket clients
@@ -105,13 +110,15 @@ if __name__ == "__main__":
     # Run the WebSocket clients for available ESPs
     tasks = []
     for i, server_address in enumerate(server_addresses):
-        if i < len(esp_config):
+        if i < len(esp_config) and esp_config[i]["in_use"]:
             start_index = esp_config[i]["start"] - 1
             end_index = esp_config[i]["stop"]
-            task = asyncio.ensure_future(send_data(server_address, start_index, end_index))
+            task = asyncio.ensure_future(send_data(server_address, start_index, end_index, esp_config[i]["in_use"]))
             tasks.append(task)
-        else:
+        elif i < len(esp_config):
             print("ESP configuration missing for server address:", server_address)
+        else:
+            print("Invalid server address:", server_address)
 
     try:
         loop.run_until_complete(asyncio.gather(*tasks))
