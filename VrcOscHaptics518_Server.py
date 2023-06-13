@@ -27,7 +27,7 @@ esp_config = [
     {"name": "ESP-R-Body", "start": 33, "stop": 48, "in_use": False},
     {"name": "ESP-R-Arm", "start": 49, "stop": 64, "in_use": False},
     {"name": "ESP-Head", "start": 65, "stop": 80, "in_use": False},
-    {"name": "ESP-L-Leg", "start": 81, "stop": 96, "in_use": True},
+    {"name": "ESP-L-Leg", "start": 81, "stop": 96, "in_use": False},
     {"name": "ESP-R-Leg", "start": 97, "stop": 112, "in_use": False},
     {"name": "ESP-Extra", "start": 113, "stop": 128, "in_use": False}
 ]
