@@ -123,8 +123,8 @@ async def start_websocket_clients():
 osc_dispatcher = dispatcher.Dispatcher()
 osc_dispatcher.set_default_handler(handle_osc_message)
 osc_server_thread = osc_server.ThreadingOSCUDPServer(
-    ('localhost', 9000), osc_dispatcher)
-print("Starting OSC...")
+    ('localhost', 9001), osc_dispatcher)
+print("OSC server listening on {}".format(osc_server_thread.server_address))
 server_thread = asyncio.ensure_future(osc_server_thread.serve_forever())
 print("OSC started")
 
