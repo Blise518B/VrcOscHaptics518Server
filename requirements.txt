@@ -1,2 +1,3 @@
 python-osc
 websockets
+asyncio_throttle
