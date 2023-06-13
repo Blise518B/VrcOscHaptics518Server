@@ -1,8 +1,8 @@
-1.  Add a OSC parameter that swicthes configuration from 128 Sensor to 32 Sensor version for Poor avis.
-    Basically one bigger contact should controll a group of 2 to 4 outputs
-    The event can be triggered by a static bool parameter value in the avi that puts the Python server in the speical mode with seperate confogurable outputs
+1.  Add an OSC parameter that switches configuration from 128 Sensor to 32 Sensor version for Poor avis.
+    Basically, one bigger contact should control a group of 2 to 4 outputs
+    The event can be triggered by a static bool parameter value in the avi that puts the Python server in the special mode with separate configurable outputs
     
-    could maybe be turned into Like config files later on that can be loaded over OSC espression menue
+    could maybe be turned into Like config files later on that can be loaded over OSC expression menu
 
-2.  Investige the inconsitent package time? Could be wrong but it seems like that sometimes one packe takes suspitiously longer than another.
-    maybe that gets fixed by code rewrite anyway.
+2.  investigate the inconsistent package time? Could be wrong, but it seems like that sometimes one package takes suspiciously longer than another.
+    Maybe that gets fixed by code rewrite anyway.
