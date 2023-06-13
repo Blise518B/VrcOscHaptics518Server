@@ -1,2 +1,2 @@
-pythonosc
+python-osc
 websockets
