@@ -1,0 +1,1 @@
+Add a OSC parameter that swicthes configuration from 128 Sensor to 32 Sensor version for Poor avaters. (Basically one bigger contact should controll a group of 2 to 4 outputs)  
