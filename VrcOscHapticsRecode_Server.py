@@ -1,6 +1,8 @@
 import asyncio
+import threading
 import websockets
-from pythonosc import dispatcher, osc_server
+from pythonosc.dispatcher import Dispatcher
+from pythonosc.osc_server import BlockingOSCUDPServer
 from asyncio_throttle import Throttler
 
 esp_config = [
@@ -144,13 +146,17 @@ async def start_websocket_clients():
                 print("Failed to connect to", client_url)
 
 # Start the OSC server
-osc_dispatcher = dispatcher.Dispatcher()
-osc_dispatcher.set_default_handler(handle_osc_message)
-osc_server_thread = osc_server.ThreadingOSCUDPServer(
-    ('localhost', 9001), osc_dispatcher)
-print("OSC server listening on {}".format(osc_server_thread.server_address))
-server_thread = asyncio.ensure_future(osc_server_thread.serve_forever())
-print("OSC started")
+dispatcher = Dispatcher()
+dispatcher.set_default_handler(handle_osc_message)
+
+# Create the OSC server on localhost and port 9001
+server = BlockingOSCUDPServer(("localhost", 9001), dispatcher)
+print("OSC server listening on {}".format(server.server_address))
+
+# Start the OSC server in a separate thread
+server_thread = threading.Thread(target=server.serve_forever)
+server_thread.start()
+print("OSC server started.")
 
 # Run the event loop
 
