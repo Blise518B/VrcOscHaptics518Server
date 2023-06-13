@@ -22,6 +22,12 @@ esp_config = [
         "start": 113, "stop": 128, "in_use": False}
 ]
 
+max_index = 128
+
+# Initialize the boolean values and previous state
+bool_values = [False] * max_index
+prev_bool_values = bool_values.copy()
+
 # Define the WebSocket clients
 websocket_clients = {}
 
@@ -34,41 +40,59 @@ data_queues = {}
 # Resolve SensorId to name
 
 
-def getClientNameFromSensor(sensor_id):
+def get_client_name_from_sensor(sensor_id):
     for config in esp_config:
         if config["in_use"]:
             if config["start"] <= sensor_id and sensor_id <= config["stop"]:
                 return config["name"]
     return None
 
+# Resolve name to start and end
+
+
+def get_start_and_end_by_client_name(client_name):
+    for config in esp_config:
+        if config["name"] == client_name:
+            return config["start"], config["stop"]
+    return None, None
 
 # OSC message handler
+
+
 def handle_osc_message(address, *args):
 
     if address.startswith("/avatar/parameters/Sensor"):
         try:
             index = int(address.split("/")[-1][len("Sensor"):])
-            if 1 <= index <= 128:
+            if 1 <= index <= max_index:
                 if len(args) > 0 and isinstance(args[0], bool):
 
                     # Extract the client name from the Sensor
-                    client_name = getClientNameFromSensor(index)
+                    client_name = get_client_name_from_sensor(index)
 
                     if client_name is not None:
-                        # Convert OSC address and arguments to a string
-                        data = f"{address}: {args}"
+                        start_index, end_index = get_start_and_end_by_client_name(
+                            client_name)
+                        # Check for data changes
+                        if bool_values[start_index:end_index] != prev_bool_values[start_index:end_index]:
 
-                        # Check if the client is in use and has a WebSocket connection
-                        if client_name in websocket_clients:
-                            queue = data_queues[client_name]
-                            # throttler = throttlers[client_name]
+                            # Convert OSC address and arguments to a string
+                            data = "".join(
+                                "1" if value else "0" for value in bool_values[start_index:end_index]
+                            )
 
-                            # Store the data in the queue
-                            queue.append(data)
+                            prev_bool_values[start_index:end_index] = bool_values[start_index:end_index]
 
-                            # Trigger sending data to the WebSocket client
-                            asyncio.create_task(
-                                send_data_to_client(client_name))
+                            # Check if the client is in use and has a WebSocket connection
+                            if client_name in websocket_clients:
+                                queue = data_queues[client_name]
+
+                                # Store the data in the queue
+                                queue.append(data)
+
+                                # Trigger sending data to the WebSocket client
+                                asyncio.create_task(
+                                    send_data_to_client(client_name))
                     else:
                         print("Invalid index:", index)
                 else:
