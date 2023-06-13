@@ -52,7 +52,7 @@ def handle_osc_message(address, *args):
         except ValueError:
             print("Invalid address format:", address)
 
-    # print("Received OSC message:", address, args)
+    # print("Received OSC message:", address, args)  #uncomment if you want to see all OSC messages
 
 
 # WebSocket client function
