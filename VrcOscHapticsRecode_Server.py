@@ -1,9 +1,9 @@
 import asyncio
 import threading
 import websockets
+import time
 from pythonosc.dispatcher import Dispatcher
 from pythonosc.osc_server import BlockingOSCUDPServer
-from asyncio_throttle import Throttler
 
 esp_config = [
     {"name": "ESP-L-Arm", "address": "ws://ESP-L-Arm:8080",
@@ -33,8 +33,8 @@ prev_bool_values = bool_values.copy()
 # Define the WebSocket clients
 websocket_clients = {}
 
-# Define the throttler for each client
-throttlers = {}
+# Define the last_sent for each client
+last_sent = {}
 
 # Define the data queues for each client
 data_queues = {}
@@ -95,6 +95,8 @@ def handle_osc_message(address, *args):
                                 # Trigger sending data to the WebSocket client
                                 asyncio.create_task(
                                     send_data_to_client(client_name))
+                            else:
+                                print(f"{client_name} is not connected")
                     else:
                         print("Invalid index:", index)
                 else:
@@ -109,59 +111,80 @@ def handle_osc_message(address, *args):
 
 
 async def send_data_to_client(client_name):
+    # Wait to allow the next data sending
+    # Limit to 20 messages per second
+    wait_time = 0.05 + last_sent[client_name] - time.time()
+    asyncio.sleep(wait_time)
+
     websocket = websocket_clients[client_name]
     queue = data_queues[client_name]
-    throttler = throttlers[client_name]
 
     # Check if there is new data in the queue
     if queue:
-        # Wait for the throttler to allow the next data sending
-        await throttler.throttle()
-
-        data = queue[-1]  # Use the newest data from the queue
+        # Use the newest data from the queue
+        data = queue[-1]
 
         # Clear the queue
         queue.clear()
 
         # Send the data to the WebSocket client
-        await websocket.send(data)
+        try:
+            last_sent[client_name] = time.time()
+            await websocket.send(data)
+        except websockets.exceptions.ConnectionClosed:
+            print(f"WebSocket connection closed for {client_name}")
+            # Remove the disconnected client
+            del websocket_clients[client_name]
 
 
 # Start the WebSocket clients
 async def start_websocket_clients():
-    for config in esp_config:
-        if config["in_use"]:
-            client_name = config["name"]
-            client_url = config["address"]
-            print(f"Connecting to {client_url}...")
-            try:
-                websocket = await websockets.connect(client_url)
-                print(f"Connected to {client_url}")
-                websocket_clients[client_name] = websocket
-                data_queues[client_name] = []
-                # Limit to 20 messages per second
-                throttlers[client_name] = Throttler(rate_limit=20)
-            except Exception as e:
-                print("WebSocket client error:", str(e))
-                print("Failed to connect to", client_url)
-
-# Start the OSC server
-dispatcher = Dispatcher()
-dispatcher.set_default_handler(handle_osc_message)
-
-# Create the OSC server on localhost and port 9001
-server = BlockingOSCUDPServer(("localhost", 9001), dispatcher)
-print("OSC server listening on {}".format(server.server_address))
-
-# Start the OSC server in a separate thread
-server_thread = threading.Thread(target=server.serve_forever)
-server_thread.start()
-print("OSC server started.")
-
-# Run the event loop
-
+    while True:  # Run indefinitely
+        for config in esp_config:
+            if config["in_use"]:
+                client_name = config["name"]
+                client_url = config["address"]
+                if client_name in websocket_clients:
+                    continue  # Skip connection process for existing client
+                print(f"Connecting to {client_url}...")
+                try:
+                    websocket = await websockets.connect(client_url)
+                    print(f"Connected to {client_url}")
+                    websocket_clients[client_name] = websocket
+                    data_queues[client_name] = []
+                    last_sent[client_name] = time.time()
+                except Exception as e:
+                    print("WebSocket client error:", str(e))
+                    print("Failed to connect to", client_url)
+                    continue  # Continue to the next iteration
+        await asyncio.sleep(3)  # Delay before attempting to reconnect
 
 async def main():
-    await start_websocket_clients()
+    try:
+        # Start the OSC server
+        dispatcher = Dispatcher()
+        dispatcher.set_default_handler(handle_osc_message)
 
-asyncio.run(main())
+        # Create the OSC server on localhost and port 9001
+        server = BlockingOSCUDPServer(("localhost", 9001), dispatcher)
+        print("OSC server listening on {}".format(server.server_address))
+
+        # Start the OSC server in a separate thread
+        server_thread = threading.Thread(target=server.serve_forever)
+        server_thread.start()
+        print("OSC server started.")
+        await start_websocket_clients()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        # Clean up resources
+        server.shutdown()
+        server_thread.join()
+        print("OSC server stopped.")
+
+# Run main
+# Ignore KeyboardInterrupt
+try:
+    asyncio.run(main())
+except KeyboardInterrupt:
+    pass
