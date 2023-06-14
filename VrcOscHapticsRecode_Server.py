@@ -17,7 +17,7 @@ esp_config = [
     {"name": "ESP-Head", "address": "ws://ESP-Head:8080",
         "start": 65, "stop": 80, "in_use": False},
     {"name": "ESP-L-Leg", "address": "ws://ESP-L-Leg:8080",
-        "start": 81, "stop": 96, "in_use": True},
+        "start": 81, "stop": 96, "in_use": False},
     {"name": "ESP-R-Leg", "address": "ws://ESP-R-Leg:8080",
         "start": 97, "stop": 112, "in_use": False},
     {"name": "ESP-Extra", "address": "ws://ESP-Extra:8080",
@@ -66,19 +66,23 @@ def get_start_and_end_by_client_name(client_name):
 def handle_osc_message(address, *args):
 
     if address.startswith("/avatar/parameters/Sensor"):
+        
         try:
             index = int(address.split("/")[-1][len("Sensor"):])
             if 1 <= index <= max_index:
-                if len(args) > 0 and isinstance(args[0], bool):
 
+                if len(args) > 0 and isinstance(args[0], bool):
+                    bool_values[index] = args[0]
                     # Extract the client name from the Sensor
                     client_name = get_client_name_from_sensor(index)
 
                     if client_name is not None:
+                        
                         start_index, end_index = get_start_and_end_by_client_name(
                             client_name)
                         # Check for data changes
                         if bool_values[start_index:end_index] != prev_bool_values[start_index:end_index]:
+                            print("Received OSC message:", address, args)  #uncomment if you want to see all OSC messages
 
                             # Convert OSC address and arguments to a string
                             data = "".join(
@@ -107,7 +111,7 @@ def handle_osc_message(address, *args):
                 print("Invalid index:", index)
         except ValueError:
             print("Invalid address format:", address)
-
+    # print("Received OSC message:", address, args)  #uncomment if you want to see all OSC messages
 
 # Function to send data to the WebSocket client
 
