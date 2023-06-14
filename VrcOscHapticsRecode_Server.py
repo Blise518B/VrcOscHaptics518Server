@@ -36,6 +36,8 @@ websocket_clients = {}
 # Define the last_sent for each client
 last_sent = {}
 
+wait_lock = {}
+
 # Define the data queues for each client
 data_queues = {}
 
@@ -112,11 +114,22 @@ def handle_osc_message(address, *args):
 
 async def send_data_to_client(client_name):
     # Wait to allow the next data sending
-    # Limit to 20 messages per second
-    wait_time = 0.05 + last_sent[client_name] - time.time()
-    asyncio.sleep(wait_time)
+    # Limit to 20 messages per second per client
 
-    websocket = websocket_clients[client_name]
+    # Skip if locked
+    if (wait_lock[client_name]):
+        return
+
+    # Lock other sends
+    wait_lock[client_name] = True
+
+    # Wait to ensure throttle
+    wait_time = 0.05 + last_sent[client_name] - time.time()
+    # print(f"Wait: {wait_time}")
+    if (wait_time > 0):
+        await asyncio.sleep(wait_time)
+
+    client_websocket = websocket_clients[client_name]
     queue = data_queues[client_name]
 
     # Check if there is new data in the queue
@@ -129,8 +142,11 @@ async def send_data_to_client(client_name):
 
         # Send the data to the WebSocket client
         try:
+            await client_websocket.send(data)
+
+            # Set last_sent and unlock
             last_sent[client_name] = time.time()
-            await websocket.send(data)
+            wait_lock[client_name] = False
         except websockets.exceptions.ConnectionClosed:
             print(f"WebSocket connection closed for {client_name}")
             # Remove the disconnected client
@@ -145,14 +161,17 @@ async def start_websocket_clients():
                 client_name = config["name"]
                 client_url = config["address"]
                 if client_name in websocket_clients:
+                    if (websocket_clients[client_name].closed):
+                        del websocket_clients[client_name]
                     continue  # Skip connection process for existing client
-                print(f"Connecting to {client_url}...")
+                print(f"Connecting to {client_name}: {client_url}...")
                 try:
-                    websocket = await websockets.connect(client_url)
+                    websocket = await websockets.connect(client_url, ping_timeout=1)
                     print(f"Connected to {client_url}")
                     websocket_clients[client_name] = websocket
                     data_queues[client_name] = []
                     last_sent[client_name] = time.time()
+                    wait_lock[client_name] = False
                 except Exception as e:
                     print("WebSocket client error:", str(e))
                     print("Failed to connect to", client_url)
