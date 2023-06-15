@@ -10,3 +10,5 @@
 3.  Add variable PWM power that can be set in configuration file or OSC over expression menu
 
 4.  Proximity sensor support that individualy controlls pwm pins
+
+5.  multiple Input sensors combine to controll the strength of one pwm output.
