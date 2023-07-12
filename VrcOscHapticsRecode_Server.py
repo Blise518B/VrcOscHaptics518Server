@@ -1,15 +1,15 @@
-import asyncio
-import threading
-import websockets
+import random
 import time
-from pythonosc.dispatcher import Dispatcher
-from pythonosc.osc_server import BlockingOSCUDPServer
+import websockets
+from pythonosc import dispatcher
+from pythonosc import osc_server
+import asyncio
 
 esp_config = [
     {"name": "ESP-L-Arm", "address": "ws://ESP-L-Arm:8080",
         "start": 1, "stop": 16, "in_use": True},
     {"name": "ESP-F-Body", "address": "ws://ESP-F-Body:8080",
-        "start": 17, "stop": 32, "in_use": True},
+        "start": 17, "stop": 32, "in_use": False},
     {"name": "ESP-R-Body", "address": "ws://ESP-R-Body:8080",
         "start": 33, "stop": 48, "in_use": False},
     {"name": "ESP-R-Arm", "address": "ws://ESP-R-Arm:8080",
@@ -39,11 +39,10 @@ last_sent = {}
 wait_lock = {}
 
 # Define the data queues for each client
-data_queues = {}
+send_datas = {}
+
 
 # Resolve SensorId to name
-
-
 def get_client_name_from_sensor(sensor_id):
     for config in esp_config:
         if config["in_use"]:
@@ -51,22 +50,20 @@ def get_client_name_from_sensor(sensor_id):
                 return config["name"]
     return None
 
+
 # Resolve name to start and end
-
-
 def get_start_and_end_by_client_name(client_name):
     for config in esp_config:
         if config["name"] == client_name:
             return config["start"], config["stop"]
     return None, None
 
+
 # OSC message handler
-
-
 def handle_osc_message(address, *args):
 
     if address.startswith("/avatar/parameters/Sensor"):
-        
+
         try:
             index = int(address.split("/")[-1][len("Sensor"):])
             if 1 <= index <= max_index:
@@ -77,12 +74,13 @@ def handle_osc_message(address, *args):
                     client_name = get_client_name_from_sensor(index)
 
                     if client_name is not None:
-                        
+
                         start_index, end_index = get_start_and_end_by_client_name(
                             client_name)
                         # Check for data changes
                         if bool_values[start_index:end_index] != prev_bool_values[start_index:end_index]:
-                            print("Received OSC message:", address, args)  #uncomment if you want to see all OSC messages
+                            # uncomment if you want to see all OSC messages
+                            # print("Received OSC message:", address, args)
 
                             # Convert OSC address and arguments to a string
                             data = "".join(
@@ -93,14 +91,15 @@ def handle_osc_message(address, *args):
 
                             # Check if the client is in use and has a WebSocket connection
                             if client_name in websocket_clients:
-                                queue = data_queues[client_name]
+                                # Store the data to send
+                                send_datas[client_name] = data
 
-                                # Store the data in the queue
-                                queue.append(data)
-
-                                # Trigger sending data to the WebSocket client
-                                asyncio.create_task(
-                                    send_data_to_client(client_name))
+                                # Check if
+                                lock = wait_lock[client_name]
+                                if (not lock):
+                                    # Trigger sending data to the WebSocket client
+                                    asyncio.create_task(
+                                        send_data_to_client(client_name=client_name))
                             else:
                                 print(f"{client_name} is not connected")
                     else:
@@ -113,12 +112,10 @@ def handle_osc_message(address, *args):
             print("Invalid address format:", address)
     # print("Received OSC message:", address, args)  #uncomment if you want to see all OSC messages
 
+
 # Function to send data to the WebSocket client
-
-
 async def send_data_to_client(client_name):
-    # Wait to allow the next data sending
-    # Limit to 20 messages per second per client
+    # Limit to 20 messages per second/every 50ms per client
 
     # Skip if locked
     if (wait_lock[client_name]):
@@ -134,27 +131,27 @@ async def send_data_to_client(client_name):
         await asyncio.sleep(wait_time)
 
     client_websocket = websocket_clients[client_name]
-    queue = data_queues[client_name]
 
-    # Check if there is new data in the queue
-    if queue:
-        # Use the newest data from the queue
-        data = queue[-1]
+    # Check if there is new data to send
+    if send_datas[client_name]:
+        # Use the newest data
+        send_data = send_datas[client_name]
 
-        # Clear the queue
-        queue.clear()
+        # Clear send data
+        send_datas[client_name] = None
+
+        # Uncomment to see what data will be sent
+        # print("Send " + client_name + ": " + send_data)
 
         # Send the data to the WebSocket client
         try:
-            await client_websocket.send(data)
-
-            # Set last_sent and unlock
-            last_sent[client_name] = time.time()
-            wait_lock[client_name] = False
+            await client_websocket.send(send_data)
         except websockets.exceptions.ConnectionClosed:
             print(f"WebSocket connection closed for {client_name}")
             # Remove the disconnected client
             del websocket_clients[client_name]
+        last_sent[client_name] = time.time()
+    wait_lock[client_name] = False
 
 
 # Start the WebSocket clients
@@ -173,7 +170,7 @@ async def start_websocket_clients():
                     websocket = await websockets.connect(client_url, ping_timeout=1)
                     print(f"Connected to {client_url}")
                     websocket_clients[client_name] = websocket
-                    data_queues[client_name] = []
+                    send_datas[client_name] = []
                     last_sent[client_name] = time.time()
                     wait_lock[client_name] = False
                 except Exception as e:
@@ -182,32 +179,33 @@ async def start_websocket_clients():
                     continue  # Continue to the next iteration
         await asyncio.sleep(3)  # Delay before attempting to reconnect
 
+
+async def start_osc_server():
+    # Create an OSC dispatcher and register the message handler
+    osc_dispatcher = dispatcher.Dispatcher()
+    osc_dispatcher.set_default_handler(handle_osc_message)
+
+    # Create an OSC server with the current event loop
+    loop = asyncio.get_event_loop()
+    osc_server_instance = osc_server.AsyncIOOSCUDPServer(
+        ("127.0.0.1", 9001), osc_dispatcher, loop=loop)
+
+    # Start the OSC server
+    print("Starting OSC server...")
+    await osc_server_instance.create_serve_endpoint()
+
+
 async def main():
-    try:
-        # Start the OSC server
-        dispatcher = Dispatcher()
-        dispatcher.set_default_handler(handle_osc_message)
+    # Start the OSC server asynchronously
+    osc_task = asyncio.create_task(start_osc_server())
 
-        # Create the OSC server on localhost and port 9001
-        server = BlockingOSCUDPServer(("localhost", 9001), dispatcher)
-        print("OSC server listening on {}".format(server.server_address))
+    # Start websockets
+    websockets_task = asyncio.create_task(start_websocket_clients())
 
-        # Start the OSC server in a separate thread
-        server_thread = threading.Thread(target=server.serve_forever)
-        server_thread.start()
-        print("OSC server started.")
-        await start_websocket_clients()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        # Clean up resources
-        server.shutdown()
-        server_thread.join()
-        print("OSC server stopped.")
+    # Wait for both tasks to complete
+    await asyncio.gather(osc_task, websockets_task)
 
-# Run main
-# Ignore KeyboardInterrupt
-try:
-    asyncio.run(main())
-except KeyboardInterrupt:
-    pass
+# Create the event loop and run it forever
+loop = asyncio.get_event_loop()
+loop.run_until_complete(main())
+loop.run_forever()
