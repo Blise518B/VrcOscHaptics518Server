@@ -6,3 +6,7 @@
 
 2.  investigate the inconsistent package time? Could be wrong, but it seems like that sometimes one package takes suspiciously longer than another.
     Maybe that gets fixed by code rewrite anyway.
+
+3.  Add variable PWM power that can be set in configuration file or OSC over expression menu
+
+4.  Proximity sensor support that individualy controlls pwm pins
