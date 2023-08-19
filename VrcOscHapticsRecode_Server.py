@@ -24,11 +24,13 @@ esp_config = [
         "start": 113, "stop": 128, "in_use": False}
 ]
 
+strength = 0.5
+
 max_index = 128
 
 # Initialize the boolean values and previous state
-bool_values = [False] * max_index
-prev_bool_values = bool_values.copy()
+pwm_values = [0] * max_index
+prev_pwm_values = pwm_values.copy()
 
 # Define the WebSocket clients
 websocket_clients = {}
@@ -55,7 +57,7 @@ def get_client_name_from_sensor(sensor_id):
 def get_start_and_end_by_client_name(client_name):
     for config in esp_config:
         if config["name"] == client_name:
-            return config["start"], config["stop"]
+            return config["start"] - 1, config["stop"]
     return None, None
 
 
@@ -69,7 +71,7 @@ def handle_osc_message(address, *args):
             if 1 <= index <= max_index:
 
                 if len(args) > 0 and isinstance(args[0], bool):
-                    bool_values[index] = args[0]
+                    pwm_values[index] = int((float(args[0]) * 255 * strength))
                     # Extract the client name from the Sensor
                     client_name = get_client_name_from_sensor(index)
 
@@ -78,16 +80,15 @@ def handle_osc_message(address, *args):
                         start_index, end_index = get_start_and_end_by_client_name(
                             client_name)
                         # Check for data changes
-                        if bool_values[start_index:end_index] != prev_bool_values[start_index:end_index]:
+                        if pwm_values[start_index:end_index] != prev_pwm_values[start_index:end_index]:
                             # uncomment if you want to see all OSC messages
                             # print("Received OSC message:", address, args)
 
-                            # Convert OSC address and arguments to a string
-                            data = "".join(
-                                "1" if value else "0" for value in bool_values[start_index:end_index]
-                            )
+                            # Convert OSC data into bytes
+                            data = bytearray(
+                                pwm_values[start_index:end_index])
 
-                            prev_bool_values[start_index:end_index] = bool_values[start_index:end_index]
+                            prev_pwm_values[start_index:end_index] = pwm_values[start_index:end_index]
 
                             # Check if the client is in use and has a WebSocket connection
                             if client_name in websocket_clients:
@@ -206,6 +207,10 @@ async def main():
     await asyncio.gather(osc_task, websockets_task)
 
 # Create the event loop and run it forever
-loop = asyncio.get_event_loop()
-loop.run_until_complete(main())
-loop.run_forever()
+try:
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(main())
+    loop.run_forever()
+except KeyboardInterrupt:
+    loop.close()
+    exit(0)
