@@ -131,8 +131,6 @@ async def send_data_to_client(client_name):
     if (wait_time > 0):
         await asyncio.sleep(wait_time)
 
-    client_websocket = websocket_clients[client_name]
-
     # Check if there is new data to send
     if send_datas[client_name]:
         # Use the newest data
@@ -146,13 +144,22 @@ async def send_data_to_client(client_name):
 
         # Send the data to the WebSocket client
         try:
-            await client_websocket.send(send_data)
+            await send_packet(client_name, 0x01, send_data)
         except websockets.exceptions.ConnectionClosed:
             print(f"WebSocket connection closed for {client_name}")
             # Remove the disconnected client
             del websocket_clients[client_name]
         last_sent[client_name] = time.time()
     wait_lock[client_name] = False
+
+
+# Send packet
+async def send_packet(client_name, identifier, data):
+    send_data = bytearray()
+    send_data.append(identifier)
+    send_data.extend(data)
+    client_websocket = websocket_clients[client_name]
+    await client_websocket.send(send_data)
 
 
 # Start the WebSocket clients
