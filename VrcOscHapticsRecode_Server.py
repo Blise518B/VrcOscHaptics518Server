@@ -1,4 +1,3 @@
-import random
 import time
 import websockets
 from pythonosc import dispatcher
@@ -23,10 +22,10 @@ esp_config = [
     {"name": "ESP-Extra", "address": "ws://ESP-Extra:8080",
         "start": 113, "stop": 128, "in_use": False}
 ]
-
-strength = 0.5
-
 max_index = 128
+
+# Esp settings configurable over osc
+esp_settings = {"strength": 127, "attenuationTime": 10000}
 
 # Initialize the boolean values and previous state
 pwm_values = [0] * max_index
@@ -65,57 +64,84 @@ def get_start_and_end_by_client_name(client_name):
 def handle_osc_message(address, *args):
 
     if address.startswith("/avatar/parameters/Sensor"):
+        handel_osc_sensor(address, *args)
+    elif address.startswith("/avatar/parameters/Setting"):
+        handel_osc_settings(address, *args)
 
-        try:
-            index = int(address.split("/")[-1][len("Sensor"):])
-            if 1 <= index <= max_index:
+    # uncomment if you want to see all OSC messages
+    # print("Received OSC message:", address, args)
 
-                if len(args) > 0 and isinstance(args[0], bool):
-                    pwm_values[index] = int((float(args[0]) * 255 * strength))
-                    # Extract the client name from the Sensor
-                    client_name = get_client_name_from_sensor(index)
 
-                    if client_name is not None:
+# Handle sensor values from osc
+def handel_osc_sensor(address, *args):
+    try:
+        index = int(address.split("/")[-1][len("Sensor"):])
+        if 1 <= index <= max_index:
 
-                        start_index, end_index = get_start_and_end_by_client_name(
-                            client_name)
-                        # Check for data changes
-                        if pwm_values[start_index:end_index] != prev_pwm_values[start_index:end_index]:
-                            # uncomment if you want to see all OSC messages
-                            # print("Received OSC message:", address, args)
+            if len(args) > 0 and isinstance(args[0], bool):
+                pwm_values[index - 1] = int(
+                    (float(args[0]) * esp_settings["strength"]))
+                # Extract the client name from the Sensor
+                client_name = get_client_name_from_sensor(index)
 
-                            # Convert OSC data into bytes
-                            data = bytearray(
-                                pwm_values[start_index:end_index])
+                if client_name is not None:
+                    start_index, end_index = get_start_and_end_by_client_name(
+                        client_name)
+                    # Check for data changes
+                    if pwm_values[start_index:end_index] != prev_pwm_values[start_index:end_index]:
+                        queue_sensor_data(client_name)
+                        prev_pwm_values[start_index:end_index] = pwm_values[start_index:end_index]
 
-                            prev_pwm_values[start_index:end_index] = pwm_values[start_index:end_index]
-
-                            # Check if the client is in use and has a WebSocket connection
-                            if client_name in websocket_clients:
-                                # Store the data to send
-                                send_datas[client_name] = data
-
-                                # Check if
-                                lock = wait_lock[client_name]
-                                if (not lock):
-                                    # Trigger sending data to the WebSocket client
-                                    asyncio.create_task(
-                                        send_data_to_client(client_name=client_name))
-                            else:
-                                print(f"{client_name} is not connected")
-                    else:
-                        print("Invalid index:", index)
                 else:
-                    print("Invalid argument:", args)
+                    print("Invalid index:", index)
             else:
-                print("Invalid index:", index)
-        except ValueError:
-            print("Invalid address format:", address)
-    # print("Received OSC message:", address, args)  #uncomment if you want to see all OSC messages
+                print("Invalid argument:", args)
+        else:
+            print("Invalid index:", index)
+    except ValueError:
+        print("Invalid address format:", address)
+
+
+def convert_sensor_data(client_name):
+    start_index, end_index = get_start_and_end_by_client_name(client_name)
+    # Convert OSC data into bytes
+    data = bytearray(pwm_values[start_index:end_index])
+
+    return data
+
+
+def queue_sensor_data(client_name):
+    # Check if the client is in use and has a WebSocket connection
+    if client_name in websocket_clients:
+        # Store the data to send
+        send_datas[client_name] = convert_sensor_data(client_name)
+
+        # Trigger sending data to the WebSocket client
+        asyncio.create_task(
+            send_sensor_data_to_client(client_name=client_name))
+    else:
+        print(f"{client_name} is not connected")
+
+
+# Handle settings from osc
+def handel_osc_settings(address, *args):
+    try:
+        if len(args) > 0 and isinstance(args[0], float):
+            if address.startswith("/avatar/parameters/SettingStrength"):
+                esp_settings["strength"] = int(float(args[0]) * 255)
+
+            elif address.startswith("/avatar/parameters/SettingAttenuationTime"):
+                esp_settings["attenuationTime"] = int(float(args[0]) * 10000)
+
+            asyncio.create_task(send_settings_to_clients())
+        else:
+            print("Invalid argument:", args)
+    except ValueError:
+        print("Invalid address format:", address)
 
 
 # Function to send data to the WebSocket client
-async def send_data_to_client(client_name):
+async def send_sensor_data_to_client(client_name):
     # Limit to 20 messages per second/every 50ms per client
 
     # Skip if locked
@@ -143,23 +169,59 @@ async def send_data_to_client(client_name):
         # print("Send " + client_name + ": " + send_data)
 
         # Send the data to the WebSocket client
-        try:
-            await send_packet(client_name, 0x01, send_data)
-        except websockets.exceptions.ConnectionClosed:
-            print(f"WebSocket connection closed for {client_name}")
-            # Remove the disconnected client
-            del websocket_clients[client_name]
+        await send_packet(client_name, 0x00, send_data)
         last_sent[client_name] = time.time()
     wait_lock[client_name] = False
 
 
+# Function to send settings to all WebSocket clients
+async def send_settings_to_clients():
+
+    # Skip if locked
+    if (wait_lock["settings"]):
+        return
+
+    # Lock other sends
+    wait_lock["settings"] = True
+
+    # Wait to ensure throttle
+    wait_time = 0.25 + last_sent["settings"] - time.time()
+    # print(f"Wait: {wait_time}")
+    if (wait_time > 0):
+        await asyncio.sleep(wait_time)
+
+    attenuationTime = int(
+        esp_settings["attenuationTime"]).to_bytes(4, "little")
+    strength = int(esp_settings["strength"]).to_bytes(1, "little")
+
+    data = bytearray()
+    data.extend(attenuationTime)
+    data.extend(strength)
+
+    for config in esp_config:
+        if config["in_use"]:
+            client_name = config["name"]
+            if client_name in websocket_clients:
+                await send_packet(client_name, 0x01, data)
+    last_sent["settings"] = time.time()
+    wait_lock["settings"] = False
+
+
 # Send packet
 async def send_packet(client_name, identifier, data):
-    send_data = bytearray()
-    send_data.append(identifier)
-    send_data.extend(data)
-    client_websocket = websocket_clients[client_name]
-    await client_websocket.send(send_data)
+    if client_name is not None:
+        send_data = bytearray()
+        send_data.append(identifier)
+        send_data.extend(data)
+        client_websocket = websocket_clients[client_name]
+        if client_websocket is not None:
+            try:
+                # print(f"Send packet {send_data}")
+                await client_websocket.send(send_data)
+            except websockets.exceptions.ConnectionClosed:
+                print(f"WebSocket connection closed for {client_name}")
+                # Remove the disconnected client
+                del websocket_clients[client_name]
 
 
 # Start the WebSocket clients
@@ -203,15 +265,34 @@ async def start_osc_server():
     await osc_server_instance.create_serve_endpoint()
 
 
+async def start_resync_clients_task():
+    while True:  # Run indefinitely
+        for config in esp_config:
+            if config["in_use"]:
+                client_name = config["name"]
+                if client_name in websocket_clients:
+                    queue_sensor_data(client_name)
+                    asyncio.create_task(send_settings_to_clients())
+
+        await asyncio.sleep(5)
+
+
 async def main():
+    # Init settings variables for sending
+    last_sent["settings"] = time.time()
+    wait_lock["settings"] = False
+
     # Start the OSC server asynchronously
     osc_task = asyncio.create_task(start_osc_server())
 
     # Start websockets
     websockets_task = asyncio.create_task(start_websocket_clients())
 
-    # Wait for both tasks to complete
-    await asyncio.gather(osc_task, websockets_task)
+    # Start resync task
+    resync_task = asyncio.create_task(start_resync_clients_task())
+
+    # Wait for all tasks to complete
+    await asyncio.gather(osc_task, websockets_task, resync_task)
 
 # Create the event loop and run it forever
 try:
