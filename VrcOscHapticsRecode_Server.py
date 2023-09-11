@@ -25,7 +25,7 @@ esp_config = [
 max_index = 128
 
 # Esp settings configurable over osc
-esp_settings = {"strength": 127, "attenuationTime": 10000}
+esp_settings = {"strength": 127, "attenuationTime": 10000, "fallOffSpeed": 40}
 
 # Initialize the boolean values and previous state
 pwm_values = [0] * max_index
@@ -133,6 +133,9 @@ def handel_osc_settings(address, *args):
             elif address.startswith("/avatar/parameters/SettingAttenuationTime"):
                 esp_settings["attenuationTime"] = int(float(args[0]) * 10000)
 
+            elif address.startswith("/avatar/parameters/SettingFallOffSpeed"):
+                esp_settings["fallOffSpeed"] = int(float(args[0]) * 127)
+
             asyncio.create_task(send_settings_to_clients())
         else:
             print("Invalid argument:", args)
@@ -191,12 +194,13 @@ async def send_settings_to_clients():
         await asyncio.sleep(wait_time)
 
     attenuationTime = int(
-        esp_settings["attenuationTime"]).to_bytes(4, "little")
-    strength = int(esp_settings["strength"]).to_bytes(1, "little")
+        esp_settings["attenuationTime"]).to_bytes(4, "little", False)
+    fallOffSpeed = int(esp_settings["fallOffSpeed"]).to_bytes(
+        1, "little", False)
 
     data = bytearray()
     data.extend(attenuationTime)
-    data.extend(strength)
+    data.extend(fallOffSpeed)
 
     for config in esp_config:
         if config["in_use"]:
