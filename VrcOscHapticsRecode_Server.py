@@ -194,9 +194,9 @@ async def send_settings_to_clients():
         await asyncio.sleep(wait_time)
 
     attenuationTime = int(
-        esp_settings["attenuationTime"]).to_bytes(4, "little", False)
+        esp_settings["attenuationTime"]).to_bytes(4, "little", signed=False)
     fallOffSpeed = int(esp_settings["fallOffSpeed"]).to_bytes(
-        1, "little", False)
+        1, "little", signed=False)
 
     data = bytearray()
     data.extend(attenuationTime)
