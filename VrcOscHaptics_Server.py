@@ -25,7 +25,7 @@ esp_config = [
 max_index = 128
 
 # Esp settings configurable over osc
-esp_settings = {"strength": 127, "attenuationTime": 10000, "fallOffSpeed": 40}
+esp_settings = {"strength": 127, "attenuationTime": 5000, "fallOffSpeed": 64}
 
 # Initialize the boolean values and previous state
 pwm_values = [0] * max_index
